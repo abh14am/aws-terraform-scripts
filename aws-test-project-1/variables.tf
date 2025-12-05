@@ -8,3 +8,14 @@ variable "domain_name" {
   type = string
   default = "pointbreak.space"
 }
+
+variable "vpc_cidr" {
+  description = "CIDR block for the vpcs"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+variable "project_name" {
+  description = "project name prefix for tags"
+  type        = string
+  default     = "3-tier-arch"
+}
