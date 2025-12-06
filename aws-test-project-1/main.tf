@@ -167,3 +167,40 @@ resource "aws_route_table_association" "private_4" {
   subnet_id      = aws_subnet.private_4.id
   route_table_id = aws_route_table.private.id
 }
+
+#key pair upload to aws
+resource "aws_key_pair" "deployer_key" {
+  key_name = "web-tier-key"
+  public_key = file("${path.module}/ssh_keys/ed25519.pub")
+}
+#security group for web tier
+resource "aws_security_group" "web_tier_sg" {
+  name        = "web-tier-sg"
+  description = "Allow HTTP and SSH inbound traffic"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "HTTP from anywhere"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { 
+  Name = "web_tier_sg" 
+  }
+}
