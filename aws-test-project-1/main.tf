@@ -124,6 +124,7 @@ resource "aws_route_table" "public" {
   tags={
     Name= "${var.project_name}-public-rt"
   }
+  depends_on = [aws_internet_gateway.gw] 
 }
 #private routetable
 resource "aws_route_table" "private" {
@@ -218,6 +219,12 @@ user_data = <<-EOF
               systemctl enable nginx
               echo "Welcome to Presentation tier instance in AZ-A" > /usr/share/nginx/html/index.html
               systemctl restart nginx
+              # TERRAFORM INJECTED KEY (No manual copy-pasting needed!)
+              cat <<'KEY_FILE'> /home/ec2-user/id_ed25519
+              ${file("${path.module}/ssh-keys/ed25519")}
+              KEY_FILE
+              chown ec2-user:ec2-user /home/ec2-user/id_ed25519
+              chmod 600 /home/ec2-user/id_ed25519
               EOF
 }
 
@@ -227,6 +234,7 @@ resource "aws_instance" "presentation_tier_instance_b" {
   subnet_id              = aws_subnet.public_2.id
   vpc_security_group_ids = [aws_security_group.web_tier_sg.id]
   key_name               = aws_key_pair.deployer_key.key_name
+  associate_public_ip_address = true
 
   tags = { 
     Name = "presentation-tier-b" 
@@ -239,6 +247,70 @@ resource "aws_instance" "presentation_tier_instance_b" {
               systemctl enable nginx
               echo "Welcome to Presentation tier instance in AZ-B" > /usr/share/nginx/html/index.html
               systemctl restart nginx
+
+              # TERRAFORM INJECTED KEY (No manual copy-pasting needed!)
+              cat <<'KEY_FILE'> /home/ec2-user/id_ed25519
+              ${file("${path.module}/ssh-keys/ed25519")}
+              KEY_FILE
+              chown ec2-user:ec2-user /home/ec2-user/id_ed25519
+              chmod 600 /home/ec2-user/id_ed25519
               EOF
 }
 
+resource "aws_security_group" "app_tier_sg"{
+  name = "app-tier-sg"
+  description = "Allow traffic from web tier sg, ssh and 3200"
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    description = "custom tcp 3200 from web tier sg"
+    from_port   = 3200
+    to_port     = 3200
+    protocol    = "tcp"
+    security_groups = [aws_security_group.web_tier_sg.id]
+  }
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    security_groups = [aws_security_group.web_tier_sg.id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0" ]  #allow outbound traffic from nat gateway
+  }
+
+  tags = {
+    Name = "app_tier_sg"
+  }
+}
+
+#instance creation for the application tier private subnet 1a and 1b
+resource "aws_instance" "application_tier_instance_a" {
+  ami                    = var.ami_id
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.private_1.id   #private subnet 1A
+  vpc_security_group_ids = [aws_security_group.app_tier_sg.id]
+  key_name               = aws_key_pair.deployer_key.key_name 
+  depends_on = [aws_nat_gateway.main]
+
+  tags = {
+    Name = "application-tier-a"
+  }
+}  
+
+resource "aws_instance" "application_tier_instance_b" {
+  ami                    = var.ami_id
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.private_2.id   #private subnet 1B
+  vpc_security_group_ids = [aws_security_group.app_tier_sg.id]
+  key_name               = aws_key_pair.deployer_key.key_name
+  depends_on = [aws_nat_gateway.main]
+  
+  tags = {
+    Name = "application-tier-b"
+  }
+}
