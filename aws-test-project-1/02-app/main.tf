@@ -12,15 +12,6 @@ provider "aws" {
 }
 
 /* 
-#hosted zone creation auto-creation
-resource "aws_route53_zone" "main" {
-  name = var.domain_name
-
-  tags = {
-    Environment = "dev"
-    project     = "3-tier-app"
-  }
-}
  */
  
 #find the zone I already created named pointbreak.space
@@ -427,7 +418,7 @@ resource "aws_route53_record" "cert_validation" {
   records         = [each.value.record]
   ttl             = 60
   type            = each.value.type
-  zone_id         = aws_route53_zone.main.zone_id
+  zone_id         = data.aws_route53_zone.main.zone_id
 }
 #Wait for validation to complete (Blocks Terraform until AWS says "Verified")
 resource "aws_acm_certificate_validation" "main" {
@@ -467,25 +458,27 @@ resource "aws_lb_listener" "https_listener" {
 # DNS RECORDS (ALIAS TO LOAD BALANCER)
 
 resource "aws_route53_record" "www" {
-  zone_id = aws_route53_zone.main.zone_id
+  zone_id = data.aws_route53_zone.main.zone_id
   name    = var.domain_name #root domain
   type    = "A"
 
   alias {
     name                   = aws_lb.app_alb.dns_name
-    zone_id                = aws_lb.app_alb.zone_id
+    #zone_id                = data.aws_route53_zone.main.zone_id
+    zone_id                = "ZP97RAFLXTNZK" #official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
     evaluate_target_health = true
   }
 }
 
 resource "aws_route53_record" "www_subdomain" {
-  zone_id = aws_route53_zone.main.zone_id
+  zone_id = data.aws_route53_zone.main.zone_id
   name    = "www.${var.domain_name}"
   type    = "A"
 
   alias {
     name                   = aws_lb.app_alb.dns_name
-    zone_id                = aws_lb.app_alb.zone_id
+    #zone_id                = aws_lb.app_alb.zone_id
+    zone_id                = "ZP97RAFLXTNZK" #official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
     evaluate_target_health = true
   }
 }

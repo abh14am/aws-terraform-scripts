@@ -22,10 +22,6 @@ output "alb_dns_name" {
   value       = aws_lb.app_alb.dns_name
 }
 
-output "hostinger_nameservers" {
-  description = "COPY THESE TO HOSTINGER CONTROL PANEL"
-  value       = aws_route53_zone.main.name_servers
-}
 
 output "website_url" {
   value = "https://${var.domain_name}"
