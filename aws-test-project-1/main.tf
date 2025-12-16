@@ -11,19 +11,23 @@ provider "aws" {
   region = var.aws_region
 }
 
-/*
-#hosted zone creation
+/* 
+#hosted zone creation auto-creation
 resource "aws_route53_zone" "main" {
   name = var.domain_name
 
   tags = {
     Environment = "dev"
-    project = "3-tier-app"
+    project     = "3-tier-app"
   }
 }
-
-#request the certificate for the domain and www subdomain (last)
-*/
+ */
+ 
+#find the zone I already created named pointbreak.space
+data "aws_route53_zone" "main" {
+  name         = var.domain_name
+  private_zone = false
+}
 
 #create Vpc
 resource "aws_vpc" "main" {
@@ -347,10 +351,10 @@ resource "aws_security_group" "alb_sg" {
 
 #aws target group
 resource "aws_lb_target_group" "three_tier_tg" {
-  name     = "3-tier-target-gp"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id  
+  name        = "3-tier-target-gp"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
   target_type = "instance"
   health_check {
     path                = "/"
@@ -360,17 +364,17 @@ resource "aws_lb_target_group" "three_tier_tg" {
     timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 2
-  } 
+  }
   tags = {
     Name = "app-tg"
   }
-} 
+}
 #target group attachments instance A and b in public subnets 
 resource "aws_lb_target_group_attachment" "presentation_a" {
   target_group_arn = aws_lb_target_group.three_tier_tg.arn
   target_id        = aws_instance.presentation_tier_instance_a.id
   port             = 80
-} 
+}
 resource "aws_lb_target_group_attachment" "presentation_b" {
   target_group_arn = aws_lb_target_group.three_tier_tg.arn
   target_id        = aws_instance.presentation_tier_instance_b.id
@@ -381,24 +385,107 @@ resource "aws_lb_target_group_attachment" "presentation_b" {
 resource "aws_lb" "app_alb" {
   name               = "3-tier-app-lb"
   internal           = false
-  load_balancer_type = "application" 
+  load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
 
   subnets = [
     aws_subnet.public_1.id,
     aws_subnet.public_2.id
-  ] 
+  ]
   tags = {
     Name = "3-tier-app-alb"
   }
-} 
-#listener for ALB
+}
+
+#request the public certificate for the domain and www subdomain (last)
+resource "aws_acm_certificate" "main" {
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+
+  subject_alternative_names = [
+    "www.${var.domain_name}"
+  ]
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-acm-cert"
+  }
+}
+#DNS validation records route53
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.main.zone_id
+}
+#Wait for validation to complete (Blocks Terraform until AWS says "Verified")
+resource "aws_acm_certificate_validation" "main" {
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+}
+
+#Listener: HTTP (80) -> Redirect to HTTPS
 resource "aws_lb_listener" "http_listener" {
   load_balancer_arn = aws_lb.app_alb.arn
   port              = "80"
   protocol          = "HTTP"
   default_action {
+    type = "redirect"
+
+    redirect {
+      protocol    = "HTTPS"
+      port        = "443"
+      status_code = "HTTP_301"
+    }
+  }
+}
+#Listener: HTTPS (443) -> Forward to App
+resource "aws_lb_listener" "https_listener" {
+  load_balancer_arn = aws_lb.app_alb.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate_validation.main.certificate_arn
+
+  default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.three_tier_tg.arn
+  }
+}
+
+# DNS RECORDS (ALIAS TO LOAD BALANCER)
+
+resource "aws_route53_record" "www" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = var.domain_name #root domain
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.app_alb.dns_name
+    zone_id                = aws_lb.app_alb.zone_id
+    evaluate_target_health = true
+  }
+}
+
+resource "aws_route53_record" "www_subdomain" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "www.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.app_alb.dns_name
+    zone_id                = aws_lb.app_alb.zone_id
+    evaluate_target_health = true
   }
 }

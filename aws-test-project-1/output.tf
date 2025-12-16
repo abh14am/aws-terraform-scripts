@@ -1,10 +1,3 @@
-/*
-#output the name server
-output "name_servers" {
-  description = "name server data for hostinger"
-  value = aws_route53_zone.main.name_servers
-}
-*/
 
 #print output public ip of presentation tier instances
 output "presentation_tier_a_ip" {
@@ -27,4 +20,13 @@ output "application_tier_b_private_ip" {
 output "alb_dns_name" {
   description = "The DNS name of the Load Balancer"
   value       = aws_lb.app_alb.dns_name
+}
+
+output "hostinger_nameservers" {
+  description = "COPY THESE TO HOSTINGER CONTROL PANEL"
+  value       = aws_route53_zone.main.name_servers
+}
+
+output "website_url" {
+  value = "https://${var.domain_name}"
 }
