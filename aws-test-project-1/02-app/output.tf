@@ -21,7 +21,10 @@ output "alb_dns_name" {
   description = "The DNS name of the Load Balancer"
   value       = aws_lb.app_alb.dns_name
 }
-
+output "rds_endpoint" {
+  description = "The endpoint URL of the RDS instance"
+  value       = aws_db_instance.rds_db.address
+}
 
 output "website_url" {
   value = "https://${var.domain_name}"

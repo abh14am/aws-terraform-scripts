@@ -166,15 +166,16 @@ resource "aws_key_pair" "deployer_key" {
 #security group for web tier
 resource "aws_security_group" "web_tier_sg" {
   name        = "web-tier-sg"
-  description = "Allow HTTP and SSH inbound traffic"
+  description = "Allow HTTP form alb sg and SSH inbound traffic"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP from anywhere"
+    description = "HTTP from alb sg"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    #cidr_blocks = ["0.0.0.0/0"]  #remove this to allow only from alb sg
+    security_groups = [aws_security_group.alb_sg.id]
   }
   ingress {
     description = "SSH from anywhere"
@@ -219,7 +220,7 @@ resource "aws_instance" "presentation_tier_instance_a" {
               ${file("${path.module}/ssh-keys/ed25519")}
               KEY_FILE
               chown ec2-user:ec2-user /home/ec2-user/id_ed25519
-              chmod 600 /home/ec2-user/id_ed25519
+              chmod 400 /home/ec2-user/id_ed25519
               EOF
 }
 
@@ -248,7 +249,7 @@ resource "aws_instance" "presentation_tier_instance_b" {
               ${file("${path.module}/ssh-keys/ed25519")}
               KEY_FILE
               chown ec2-user:ec2-user /home/ec2-user/id_ed25519
-              chmod 600 /home/ec2-user/id_ed25519
+              chmod 400 /home/ec2-user/id_ed25519
               EOF
 }
 
@@ -281,6 +282,13 @@ resource "aws_security_group" "app_tier_sg" {
   tags = {
     Name = "app_tier_sg"
   }
+
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo rpm --import https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
+              sudo dnf install https://dev.mysql.com/get/mysql80-community-release-el9-1.noarch.rpm -y
+              sudo dnf install mysql-community-server -y
+              EOF
 }
 
 #instance creation for the application tier private subnet 1a and 1b
@@ -295,6 +303,12 @@ resource "aws_instance" "application_tier_instance_a" {
   tags = {
     Name = "application-tier-a"
   }
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo rpm --import https://repo.mysql.com/RPM-GPG-KEY-mysql-2023
+              sudo dnf install https://dev.mysql.com/get/mysql80-community-release-el9-1.noarch.rpm -y
+              sudo dnf install mysql-community-server -y
+              EOF
 }
 
 resource "aws_instance" "application_tier_instance_b" {
@@ -465,7 +479,7 @@ resource "aws_route53_record" "www" {
   alias {
     name                   = aws_lb.app_alb.dns_name
     #zone_id                = data.aws_route53_zone.main.zone_id
-    zone_id                = "ZP97RAFLXTNZK" #official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
+    zone_id                = var.alb_zone_id[var.aws_region] #"ZP97RAFLXTNZK" official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
     evaluate_target_health = true
   }
 }
@@ -478,7 +492,69 @@ resource "aws_route53_record" "www_subdomain" {
   alias {
     name                   = aws_lb.app_alb.dns_name
     #zone_id                = aws_lb.app_alb.zone_id
-    zone_id                = "ZP97RAFLXTNZK" #official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
+    zone_id                = var.alb_zone_id[var.aws_region] #"ZP97RAFLXTNZK" official, permanent Hosted Zone ID in the Mumbai (ap-south-1) region.
     evaluate_target_health = true
+  }
+}
+
+#rds instance for db tier
+resource "aws_security_group" "db_sg" {
+  name        = "data-tier-sg"
+  description = "Allow mysql traffic from app tier only"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "mysql from app tier sg"
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_tier_sg.id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    Name = "data_tier_sg"
+  }
+}
+
+#db subnet group
+resource "aws_db_subnet_group" "rds_subnet_group" {
+  name       = "three-tier-db-subnet-group"
+  subnet_ids = [aws_subnet.private_3.id, aws_subnet.private_4.id]
+
+  tags = {
+    Name = "three-tier-db-subnet-group"
+  }
+}
+
+#rds instance
+resource "aws_db_instance" "rds_db" {
+  identifier              = "three-tier-rds-instance"
+  engine                = "mysql"
+  engine_version        = "8.0"
+  instance_class        = "db.t3.micro"
+  allocated_storage     = 20
+
+  username              = var.db_username
+  password              = var.db_password
+  db_name               = "test1db"
+
+  #network config
+  db_subnet_group_name = aws_db_subnet_group.rds_subnet_group.name
+  vpc_security_group_ids   = [aws_security_group.db_sg.id]
+  multi_az                = false
+  publicly_accessible     = false
+  availability_zone       = "${var.aws_region}a"
+
+  #backup and maintenance
+  backup_retention_period = 0
+  skip_final_snapshot     = true
+
+  tags = {
+    Name = "three-tier-rds-instance"
   }
 }
