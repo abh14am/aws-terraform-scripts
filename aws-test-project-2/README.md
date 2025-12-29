@@ -69,12 +69,12 @@ The architecture includes:
 
 # **📦 Features**
 
-* Multi-AZ High Availability
-* Secure Public + Private Subnet Architecture
-* Automated backend and frontend deployment
-* Backend process manager (PM2)
-* Encrypted database connections
-* Scalable ALB front-end
-
+* Global Content Delivery: CloudFront integration for low-latency access.
+* Dual-Layer Load Balancing: Separate ALBs for public and internal traffic.
+* Auto-Scaling: CloudWatch alarms trigger Scale In/Out actions based on load.
+* Multi-AZ High Availability: Redundancy across Zone A & B.
+* Secure Management: Dedicated Bastion Host for administrative tasks.
+* Centralized Logging: Instance logs streamed directly to CloudWatch Logs.
+* Database Redundancy: Automatic RDS standby replication.
 ---
 
